@@ -1,0 +1,8 @@
+
+container:
+  image:
+    name    : docker.io/myrepos/mytest-nginxlua
+    version : v0.15
+
+replicaCount : 3
+enviropment  : dev

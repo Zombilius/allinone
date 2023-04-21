@@ -1,0 +1,17 @@
+apiVersion  : v2
+name        : my-nginx-helmChart
+description : Helm chart for My nginx app on lua
+type        : application
+version     : 0.1.1
+appVersion  : 0.17.0
+
+keywords:
+  - nginx
+  - http
+  - lua
+  - bash
+
+maintainers:
+  - name : Tim Tereshchenko
+    email: zombilius@gmail.com
+
