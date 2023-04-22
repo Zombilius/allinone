@@ -1,0 +1,6 @@
+wordpressUsername: admin
+wordpressPassword: qazwsx
+wordpressBlogName: "Flant's Blog!"
+mariadb.auth.rootPassword: qazwsx
+mariadb.auth.password: qazwsx
+image.tag: "6.1.0-debian-11-r11"

@@ -1,0 +1,5 @@
+wordpressUsername: admin
+wordpressPassword: qazwsx
+wordpressBlogName: "Flant's Blog!"
+mariadb.auth.rootPassword: qazwsx
+mariadb.auth.password: qazwsx
