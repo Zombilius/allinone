@@ -1,0 +1,358 @@
+Разверните WordPress на GKE с помощью Persistent Disk и
+Cloud SQL
+АВТОПИЛОТ (/KUBERNETES-ENGINE/DOCS/CONCEPTS/AUTOPILOT-OVERVIEW)
+СТАНДАРТ (/KUBERNETES-ENGINE/DOCS/CONCEPTS/TYPES-OF-CLUSTERS)
+
+В этом руководстве показано, как настроить развертывание WordPress (https://wordpress.com/) с одной репликой в​​Google
+Kubernetes Engine (GKE) (/kubernetes-engine) с использованием базы данных MySQL. Вместо установки MySQL вы используете
+Cloud SQL (/sql) , который предоставляет управляемую версию MySQL. WordPress использует PersistentVolumes(PV)
+(https://kubernetes.io/docs/concepts/storage/persistent-volumes/) и PersistentVolumeClaims(PVC)
+(https://kubernetes.io/docs/concepts/storage/persistent-volumes/) для хранения данных.
+PV — это представление объема хранилища в кластере, который предоставляется администратором или динамически
+выделяется Kubernetes для выполнения запроса, сделанного в PVC. PVC — это запрос пользователя на хранение
+определенного класса хранилища , который может быть выполнен с помощью PV.
+(/kubernetes-engine/docs/concepts/persistent-volumes#storageclasses)PV и PVC не зависят от жизненных циклов Pod
+(https://kubernetes.io/docs/concepts/workloads/pods/pod/) и сохраняют данные за счет перезапуска, изменения расписания и даже
+удаления Pod. WordPress использует постоянный диск (/persistent-disk) в качестве хранилища для резервного копирования
+PV.
+
+Фон
+WordPress — это инструмент для ведения блога, который использует реляционную базу данных для хранения статей блога и
+связанных с ними объектов и метаданных, а также локальную файловую систему для хранения ресурсов, таких как
+изображения в записи блога. В этом руководстве используется официальный образ WordPress Docker
+(https://registry.hub.docker.com/_/wordpress/) из Docker Hub (https://hub.docker.com/) .
+Как правило, корневая файловая система контейнера не подходит для хранения постоянных данных. Контейнеры, которые
+вы запускаете в GKE, обычно являются одноразовыми объектами, и менеджер кластера может удалять, исключать или
+перепланировать любые контейнеры, которые становятся недоступными из-за сбоев узлов или по другим причинам. Когда
+узлы выходят из строя, все данные, сохраненные в корневой файловой системе контейнера, теряются.
+Использование PV, поддерживаемых Persistent Disk, позволяет хранить данные платформы WordPress вне контейнеров.
+Таким образом, даже если контейнеры удаляются, их данные сохраняются. С классом хранения по умолчанию ваш
+постоянный диск (и, следовательно, ваши данные) не перемещается вместе с вашим подом, если под переназначается на
+другой узел. Существуют разные способы обработки перемещения данных, но это выходит за рамки данного руководства.
+Дополнительные сведения см. в разделе Постоянные тома с постоянным диском
+(/kubernetes-engine/docs/concepts/persistent-volumes#using_preexisting_persistent_disks_as_persistentvolumes) .
+WordPress требует PV для хранения данных. В этом руководстве вы используете класс хранилища по умолчанию для
+динамического создания постоянного диска и PVC для развертывания.
+
+Цели
+Создайте кластер GKE.
+Создайте PV и PVC, поддерживаемые Persistent Disk.
+Создайте экземпляр Cloud SQL для MySQL.
+Разверните WordPress.
+Настройте свой блог WordPress.
+
+Расходы
+В этом руководстве используются следующие оплачиваемые компоненты Google Cloud:
+ГКЭ (/kubernetes-engine/pricing)
+Облачный SQL (/sql/pricing)
+Чтобы рассчитать стоимость на основе прогнозируемого использования, воспользуйтесь калькулятором цен
+(/products/calculator) .
+Когда вы закончите работу с этим учебным пособием, вы сможете избежать дальнейшего выставления счетов, удалив
+созданные вами ресурсы. Дополнительные сведения см. в разделе Очистка (#clean-up) .
+
+Прежде чем вы начнете
+1. В консоли Google Cloud на странице выбора проекта выберите или создайте проект Google Cloud
+(/resource-manager/docs/creating-managing-projects) .
+
+star Примечание . Если вы не планируете сохранять ресурсы, созданные в этой процедуре, создайте проект вместо выбора существующего
+проекта. После выполнения этих шагов вы можете удалить проект, удалив все ресурсы, связанные с проектом.
+
+Перейти к выбору проектов (https://console.cloud.google.com/projectselector2/home/dashboard)
+2. Убедитесь, что биллинг включен для вашего облачного проекта. Узнайте, как проверить, включена ли оплата для
+проекта (/billing/docs/how-to/verify-billing-enabled) .
+3. В консоли Google Cloud активируйте Cloud Shell.
+
+Активировать облачную оболочку (https://console.cloud.google.com/?cloudshell=true)
+В нижней части консоли Google Cloud запускается сеанс Cloud Shell (/shell/docs/how-cloud-shell-works) и отображается
+приглашение командной строки. Cloud Shell — это среда оболочки с уже установленным интерфейсом командной
+строки Google Cloud и уже заданными значениями для вашего текущего проекта. Инициализация сеанса может занять
+несколько секунд.
+4. В Cloud Shell включите GKE и API администратора Cloud SQL:
+
+gcloud services enable container.googleapis.com sqladmin.googleapis.com
+
+Настройка вашей среды
+1. В Cloud Shell установите регион по умолчанию для Google Cloud CLI:
+
+gcloud config set compute/region europe-west1
+Замените следующее:
+
+region: выберите ближайший к вам регион. Дополнительные сведения см. в разделе Регионы и зоны
+(/compute/docs/regions-zones) .
+
+2. Задайте PROJECT_IDдля переменной среды идентификатор вашего проекта Google Cloud
+(/resource-manager/docs/creating-managing-projects#identifying_projects) (project-id).
+
+export PROJECT_ID=lab-gke-wordpre edit
+3. Загрузите файлы манифеста приложения из репозитория GitHub
+(https://github.com/GoogleCloudPlatform/kubernetes-engine-samples/tree/main/wordpress-persistent-disks) :
+
+git clone https://github.com/GoogleCloudPlatform/kubernetes-engine-samples
+4. Перейдите в каталог с wordpress-persistent-disksфайлом:
+
+cd kubernetes-engine-samples/wordpress-persistent-disks
+5. Установите WORKING_DIRпеременную среды:
+
+WORKING_DIR=$(pwd)
+В этом руководстве вы создаете объекты Kubernetes, используя файлы манифеста в формате YAML.
+
+Создание кластера GKE
+Вы создаете кластер (/kubernetes-engine/docs/clusters) GKE для размещения своего контейнера приложений WordPress.
+В Cloud Shell создайте кластер GKE с именем persistent-disk-tutorial:
+
+CLUSTER_NAME=persistent-disk-tutorial
+gcloud container clusters create-auto $CLUSTER_NAME
+После создания подключитесь к новому кластеру:
+
+gcloud container clusters get-credentials $CLUSTER_NAME --region europe-west1 edit
+
+Создание PV и PVC с поддержкой Persistent Disk
+Создайте PVC в качестве хранилища, необходимого для WordPress. В GKE StorageClassустановлен ресурс по умолчанию,
+который позволяет динамически предоставлять (/kubernetes-engine/docs/concepts/persistent-volumes#dynamic_provisioning) PV,
+поддерживаемые Persistent Disk. Этот файл используется wordpress-volumeclaim.yamlдля создания PVC, необходимых
+для развертывания.
+Этот файл манифеста описывает PVC, который запрашивает 200 ГБ хранилища. Ресурс StorageClassне был определен в
+файле, поэтому этот PVC использует StorageClassресурс по умолчанию для подготовки PV, поддерживаемого постоянным
+диском.
+1. В Cloud Shell разверните файл манифеста:
+
+kubectl apply -f $WORKING_DIR/wordpress-volumeclaim.yaml
+
+Подготовка PV, поддерживаемого Persistent Disk, и привязка его к PVC может занять до десяти секунд. Вы можете
+проверить статус с помощью следующей команды:
+
+kubectl get persistentvolumeclaim
+В выходных данных отображается PersistentVolumeClaim со статусом Pending, как показано ниже:
+
+NAME
+wordpress-volumeclaim
+
+STATUS
+Pending
+
+VOLUME
+
+CAPACITY
+
+ACCESS MODES
+
+STORAGECLASS
+standard-rwo
+
+AGE
+5s
+
+Это PersistentVolumeClaim остается в Pendingсостоянии, пока вы не используете его позже в этом руководстве.
+
+Создание экземпляра Cloud SQL для MySQL
+1. В Cloud Shell создайте экземпляр с именем mysql-wordpress-instance:
+
+INSTANCE_NAME=mysql-wordpress-instance
+gcloud sql instances create $INSTANCE_NAME
+2. Добавьте имя подключения экземпляра в качестве переменной среды:
+
+export INSTANCE_CONNECTION_NAME=$(gcloud sql instances describe $INSTANCE_NAME \
+--format='value(connectionName)')
+3. Создайте базу данных для WordPress для хранения своих данных:
+
+gcloud sql databases create wordpress --instance $INSTANCE_NAME
+4. Создайте имя пользователя базы данных wordpressи пароль для WordPress для аутентификации в экземпляре:
+
+CLOUD_SQL_PASSWORD=$(openssl rand -base64 18)
+gcloud sql users create wordpress --host=% --instance $INSTANCE_NAME \
+--password $CLOUD_SQL_PASSWORD
+Если вы закроете сеанс Cloud Shell, вы потеряете пароль. Запишите пароль, потому что он понадобится вам позже в
+этом руководстве.
+Вы завершили настройку базы данных для своего нового блога WordPress.
+
+Развертывание WordPress
+Прежде чем вы сможете развернуть WordPress, вы должны создать учетную запись службы. Вы создаете секрет Kubernetes
+для хранения учетных данных учетной записи службы и еще один секрет для хранения учетных данных базы данных.
+
+Настройте учетную запись службы и создайте секреты
+
+1. Чтобы разрешить вашему приложению WordPress доступ к экземпляру MySQL через прокси-сервер Cloud SQL,
+создайте учетную запись службы:
+
+SA_NAME=cloudsql-proxy
+gcloud iam service-accounts create $SA_NAME --display-name $SA_NAME
+2. Добавьте адрес электронной почты учетной записи службы в качестве переменной среды:
+
+SA_EMAIL=$(gcloud iam service-accounts list \
+--filter=displayName:$SA_NAME \
+--format='value(email)')
+3. Добавьте cloudsql.clientроль в свой сервисный аккаунт:
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+--role roles/cloudsql.client \
+--member serviceAccount:$SA_EMAIL
+4. Создайте ключ для учетной записи службы:
+
+gcloud iam service-accounts keys create $WORKING_DIR/key.json \
+--iam-account $SA_EMAIL
+Эта команда загружает копию файла key.json.
+5. Создайте секрет Kubernetes (https://kubernetes.io/docs/concepts/configuration/secret/) для учетных данных MySQL:
+
+kubectl create secret generic cloudsql-db-credentials \
+--from-literal username=wordpress \
+--from-literal password=$CLOUD_SQL_PASSWORD
+6. Создайте секрет Kubernetes для учетных данных учетной записи службы:
+
+kubectl create secret generic cloudsql-instance-credentials \
+--from-file $WORKING_DIR/key.json
+
+Развернуть WordPress
+Следующим шагом будет развертывание контейнера WordPress в кластере GKE.
+Файл wordpress_cloudsql.yamlманифеста описывает развертывание, которое создает один под, запускающий контейнер с
+экземпляром WordPress. Этот контейнер считывает WORDPRESS_DB_PASSWORDпеременную среды, содержащую cloudsql-dbcredentialsсозданный вами секрет.
+Этот файл манифеста также настраивает контейнер WordPress для связи с MySQL через прокси-сервер Cloud SQL,
+работающий в дополнительном контейнере (/sql/docs/mysql/connect-kubernetes-engine) . Значение адреса хоста устанавливается
+в WORDPRESS_DB_HOSTпеременной среды.
+1. Подготовьте файл, заменив INSTANCE_CONNECTION_NAME переменную среды:
+
+cat $WORKING_DIR/wordpress_cloudsql.yaml.template | envsubst > \
+$WORKING_DIR/wordpress_cloudsql.yaml
+2. Разверните wordpress_cloudsql.yamlфайл манифеста:
+
+kubectl create -f $WORKING_DIR/wordpress_cloudsql.yaml
+Развертывание этого файла манифеста занимает несколько минут, пока постоянный диск подключен к
+вычислительному узлу.
+3. Наблюдайте за развертыванием, чтобы увидеть изменение статуса на running:
+
+kubectl get pod -l app=wordpress --watch
+Когда на выходе отображается состояние Running, вы можете перейти к следующему шагу.
+
+NAME
+wordpress-387015-02xxb
+
+READY
+2/2
+
+STATUS
+Running
+
+RESTARTS
+0
+
+AGE
+2m47s
+
+Разоблачить службу WordPress
+На предыдущем шаге вы развернули контейнер WordPress, но в настоящее время он недоступен из-за пределов вашего
+кластера, поскольку у него нет внешнего IP-адреса. Вы можете открыть свое приложение WordPress для трафика из
+Интернета, создав и настроив службу Kubernetes с подключенным внешним балансировщиком нагрузки
+(/kubernetes-engine/docs/concepts/network-overview) . Чтобы узнать больше о предоставлении доступа к приложениям с помощью
+служб в GKE, см. практическое руководство (/kubernetes-engine/docs/how-to/exposing-apps) .
+1. Создайте сервис (https://kubernetes.io/docs/concepts/services-networking/service/) из type:LoadBalancer:
+
+kubectl create -f $WORKING_DIR/wordpress-service.yaml
+Создание балансировщика нагрузки занимает несколько минут.
+2. Наблюдайте за развертыванием и подождите, пока службе не будет назначен внешний IP-адрес:
+
+kubectl get svc -l app=wordpress --watch
+3. Когда на выходе появится внешний IP-адрес, вы можете перейти к следующему шагу. Обратите внимание, что ваш
+внешний IP-адрес отличается от следующего примера.
+
+NAME
+wordpress
+
+CLUSTER-IP
+10.51.243.233
+
+EXTERNAL-IP
+203.0.113.3
+
+PORT(S)
+80:32418/TCP
+
+AGE
+1m
+
+4. Запишите EXTERNAL_IPполе адреса, чтобы использовать его позже.
+Предупреждение: не оставляйте установку WordPress с балансировщиком нагрузки, который показывает кластер на странице установки.
+Другие посетители могут настроить веб-сайт в вашем кластере и использовать его для размещения потенциально вредоносного контента.
+Либо продолжите настройку своего блога WordPress, либо очистите (#cleaning-up) это развертывание.
+
+Настройка вашего блога WordPress
+В этом разделе вы настраиваете свой блог WordPress.
+1. В браузере перейдите по следующему URL-адресу, заменивexternal-ip-address с EXTERNAL_IPадресом службы, которая
+предоставляет доступ к вашему экземпляру WordPress:
+
+http://34.79.197.56 edit
+2. На странице установки WordPress выберите язык и нажмите «Продолжить» .
+3. Заполните страницу «Необходимая информация» и нажмите «Установить WordPress» .
+4. Щелкните Войти .
+5. Введите имя пользователя и пароль, которые вы создали ранее.
+6. Теперь у вас есть сайт-блог. Чтобы посетить свой блог, в браузере перейдите по следующему URL-адресу:
+
+http://34.79.197.56 edit
+
+Очистить
+Чтобы избежать взимания платы с вашей учетной записи Google Cloud за ресурсы, используемые в этом руководстве, либо
+удалите проект, содержащий ресурсы, либо сохраните проект и удалите отдельные ресурсы.
+
+Удалить проект
+
+error Внимание ! Удаление проекта имеет следующие последствия:
+Все в проекте удалено. Если вы использовали существующий проект для этого руководства, при его удалении вы также удаляете
+любую другую работу, выполненную вами в этом проекте.
+Идентификаторы пользовательских проектов теряются. Когда вы создавали этот проект, возможно, вы создали собственный
+идентификатор проекта, который хотите использовать в будущем. Чтобы сохранить URL-адреса, использующие идентификатор
+проекта, например appspot.com URL-адрес, удалите выбранные ресурсы внутри проекта, а не весь проект.
+
+1. В консоли Google Cloud перейдите на страницу Управление ресурсами .
+
+Перейти к управлению ресурсами (https://console.cloud.google.com/iam-admin/projects)
+2. В списке проектов выберите проект, который вы хотите удалить, и нажмите Удалить .
+3. В диалоговом окне введите идентификатор проекта, а затем щелкните Завершение работы , чтобы удалить проект.
+
+Удалить отдельные ресурсы
+Если вы использовали существующий проект и не хотите его удалять, удалите отдельные ресурсы.
+1. Удалить услугу:
+
+kubectl delete service wordpress
+
+Подождите, пока балансировщик нагрузки, подготовленный для wordpressслужбы, будет удален. Балансировщик
+нагрузки удаляется асинхронно в фоновом режиме.
+Смотрите процесс удаления:
+
+watch gcloud compute forwarding-rules list
+Балансировщик нагрузки удаляется, когда вы видите следующий вывод:
+
+Listed 0 items.
+2. Удалить развертывание:
+
+kubectl delete deployment wordpress
+3. Удалите PVC для WordPress:
+
+kubectl delete pvc wordpress-volumeclaim
+Эта команда также автоматически удаляет PV и постоянный диск.
+4. Удалите кластер GKE:
+
+gcloud container clusters delete $CLUSTER_NAME
+5. Удалите экземпляр Cloud SQL:
+
+gcloud sql instances delete $INSTANCE_NAME
+6. Удалите роль из учетной записи службы:
+
+gcloud projects remove-iam-policy-binding $PROJECT_ID \
+--role roles/cloudsql.client \
+--member serviceAccount:$SA_EMAIL
+7. Удалите учетную запись службы:
+
+gcloud iam service-accounts delete $SA_EMAIL
+
+Что дальше
+Configure a static IP and a domain name (/kubernetes-engine/docs/tutorials/configuring-domain-name-static-ip) for your app.
+Set up an external HTTP(S) load balancer with Ingress (/kubernetes-engine/docs/tutorials/http-balancer).
+Explore other Kubernetes Engine tutorials (/kubernetes-engine/docs/tutorials).
+
+Explore reference architectures, diagrams, and best practices about Google Cloud. Take a look at our Cloud Architecture Center
+(/architecture).
+Except as otherwise noted, the content of this page is licensed under the Creative Commons Attribution 4.0 License
+
+(https://creativecommons.org/licenses/by/4.0/), and code samples are licensed under the Apache 2.0 License
+(https://www.apache.org/licenses/LICENSE-2.0). For details, see the Google Developers Site Policies (https://developers.google.com/site-policies). Java is
+a registered trademark of Oracle and/or its affiliates.
+Last updated 2023-04-21 UTC.
+
