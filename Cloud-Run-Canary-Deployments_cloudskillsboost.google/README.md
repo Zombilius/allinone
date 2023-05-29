@@ -1,15 +1,15 @@
 # Cloud Run Canary Deployments
 ## Google Cloud Self-Passed Labs. GSP1078
-Fixes for version: "Manual Last Updated March 20, 2023, Lab Last Tested March 20, 2023"
+Fixes for version: `Manual Last Updated March 20, 2023, Lab Last Tested March 20, 2023`
 
 ### Overview
 
-Missing files: branch-trigger.json-tmpl, tag-trigger.json-tmpl, master-trigger.json-tmpl, master-cloudbuild.yaml  
-Errors in files: branch-cloudbuild.yaml, tag-cloudbuild.yaml
+Missing files: `branch-trigger.json-tmpl, tag-trigger.json-tmpl, master-trigger.json-tmpl, master-cloudbuild.yaml`  
+Errors in files: `branch-cloudbuild.yaml, tag-cloudbuild.yaml`
+
+This is you need before *"Task 3. Enabling Dynamic Developer Deployments"*
 
 ### Instruction
-
-This is you need before "Task 3. Enabling Dynamic Developer Deployments"
 
 - Create backup original files
 ```bash
