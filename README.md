@@ -2,6 +2,8 @@
 
 ### git command for github repository:
 ```
+git clone https://github.com/Zombilius/allinone.git
+
 git remote set-url origin https://Username:personal_token@github.com/Zombilius/allinone.git
 git add -A
 git commit -a -m "add git command in README"

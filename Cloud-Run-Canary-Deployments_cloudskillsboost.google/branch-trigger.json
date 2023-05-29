@@ -1,0 +1,15 @@
+{
+  "name": "branch",
+  "description": "Trigger dev build/deploy for branch new-feature-1",
+  "filename": "branch-cloudbuild.yaml",
+
+  "triggerTemplate": {
+    "projectId": "$PROJECT_ID",
+    "repoName": "cloudrun-progression",
+    "branchName": "new-feature-1"
+  },
+   "substitutions": {
+    "_ZONE": "${ZONE}",
+    "_CLUSTER": "${CLUSTER}"
+  }
+}
